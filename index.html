@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>活動摸彩開獎查詢</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body class="bg-slate-900 text-white min-h-screen flex items-center justify-center p-4">
+
+    <div id="app" class="max-w-md w-full bg-slate-800 rounded-2xl shadow-2xl p-8 text-center border border-slate-700">
+        <div id="loading" class="py-12">
+            <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-amber-400 mx-auto mb-4"></div>
+            <p class="text-slate-300">正在驗證摸彩券序號...</p>
+        </div>
+
+        <div id="result" class="hidden space-y-6">
+            <div class="inline-block px-3 py-1 rounded-full bg-slate-700 text-xs text-slate-300 tracking-wider">
+                票券流水號 #<span id="ticket-id">0000</span>
+            </div>
+            <div id="status-icon" class="text-6xl">🎉</div>
+            <div>
+                <h1 id="result-title" class="text-2xl font-bold mb-2">恭喜中獎！</h1>
+                <p id="prize-name" class="text-3xl font-extrabold text-amber-400 break-words"></p>
+            </div>
+            <div id="redeem-badge" class="hidden p-3 rounded-lg bg-red-900/50 border border-red-500 text-red-200 text-sm">
+                ⚠️ 此獎項已兌換完畢
+            </div>
+            <div id="staff-section" class="hidden pt-6 border-t border-slate-700 space-y-3">
+                <p class="text-xs text-slate-400">請向兌獎處出示此畫面，由工作人員輸入密碼核銷</p>
+                <div class="flex gap-2 justify-center">
+                    <input type="password" id="staff-pin" maxlength="6" placeholder="工作人員密碼" 
+                           class="w-36 px-3 py-2 rounded-lg bg-slate-900 border border-slate-600 text-center text-white focus:outline-none focus:border-amber-400">
+                    <button onclick="redeemPrize()" id="redeem-btn"
+                            class="px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold transition">
+                        確認核銷
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ================= 填入你的 Supabase 設定 =================
+        const SUPABASE_URL = 'https://lrfpuxozbnimfhmdqzcy.supabase.co';
+        const SUPABASE_ANON_KEY = 'sb_publishable_JOIxaaDduTrpiAT_av951A_z-honGcU';
+        // ==========================================================
+
+        const db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        const urlParams = new URLSearchParams(window.location.search);
+        const token = urlParams.get('code');
+
+        async function init() {
+            if (!token) {
+                showError('無效的存取路徑，請掃描摸彩券上的 QR Code');
+                return;
+            }
+            const { data, error } = await db.rpc('check_ticket', { p_token: token });
+            document.getElementById('loading').classList.add('hidden');
+            document.getElementById('result').classList.remove('hidden');
+
+            if (error || !data || !data.valid) {
+                showError(data?.message || '查詢失敗，請聯繫現場工作人員');
+                return;
+            }
+            document.getElementById('ticket-id').textContent = data.id;
+
+            if (!data.is_won) {
+                document.getElementById('status-icon').textContent = '🍀';
+                document.getElementById('result-title').textContent = '銘謝惠顧';
+                document.getElementById('prize-name').textContent = '感謝您的熱情參與！';
+                document.getElementById('prize-name').className = 'text-lg text-slate-400';
+                return;
+            }
+            document.getElementById('prize-name').textContent = data.prize;
+            if (data.status === 2) {
+                markAsRedeemed(data.redeemed_at);
+            } else {
+                document.getElementById('staff-section').classList.remove('hidden');
+            }
+        }
+
+        async function redeemPrize() {
+            const pin = document.getElementById('staff-pin').value;
+            if (!pin) return alert('請輸入工作人員核銷密碼');
+            const btn = document.getElementById('redeem-btn');
+            btn.disabled = true;
+            btn.textContent = '處理中...';
+            const { data, error } = await db.rpc('redeem_ticket', { p_token: token, p_pin: pin });
+            btn.disabled = false;
+            btn.textContent = '確認核銷';
+            if (error || !data.success) {
+                alert(data?.message || '核銷發生錯誤');
+                return;
+            }
+            alert('核銷成功！請發放獎品。');
+            markAsRedeemed(new Date().toISOString());
+        }
+
+        function markAsRedeemed(timeStr) {
+            document.getElementById('staff-section').classList.add('hidden');
+            const badge = document.getElementById('redeem-badge');
+            badge.classList.remove('hidden');
+            const localTime = new Date(timeStr).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
+            badge.textContent = `⚠️ 此獎項已於 ${localTime} 兌換完畢`;
+        }
+
+        function showError(msg) {
+            document.getElementById('loading').classList.add('hidden');
+            document.getElementById('result').classList.remove('hidden');
+            document.getElementById('status-icon').textContent = '❌';
+            document.getElementById('result-title').textContent = '查詢異常';
+            document.getElementById('prize-name').textContent = msg;
+            document.getElementById('prize-name').className = 'text-base text-red-400';
+        }
+        init();
+    </script>
+</body>
+</html>
