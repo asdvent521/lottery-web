@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>現場開獎即時實況看板</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@700;800&family=Noto+Sans+TC:wght@400;700;900&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            background-color: #060913;
+            background-image: 
+                radial-gradient(circle at 22% 50%, rgba(245, 158, 11, 0.14) 0%, transparent 50%),
+                radial-gradient(circle at 80% 20%, rgba(56, 189, 248, 0.08) 0%, transparent 45%);
+        }
+        .font-mono-num {
+            font-family: 'JetBrains Mono', monospace;
+            font-variant-numeric: tabular-nums;
+        }
+        .gold-text {
+            background: linear-gradient(135deg, #FDE68A 0%, #F59E0B 50%, #D97706 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .spotlight-card {
+            background: linear-gradient(160deg, rgba(30, 41, 59, 0.85) 0%, rgba(15, 23, 42, 0.95) 100%);
+            box-shadow: 0 0 60px -15px rgba(245, 158, 11, 0.25), inset 0 1px 1px rgba(255, 255, 255, 0.12);
+        }
+        @keyframes popReveal {
+            0% { transform: scale(0.88) translateY(12px); opacity: 0; }
+            60% { transform: scale(1.02) translateY(0); opacity: 1; }
+            100% { transform: scale(1) translateY(0); opacity: 1; }
+        }
+        .animate-reveal {
+            animation: popReveal 0.55s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+        /* 自訂捲軸 */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: rgba(15, 23, 42, 0.5); }
+        ::-webkit-scrollbar-thumb { background: rgba(245, 158, 11, 0.35); border-radius: 999px; }
+    </style>
+</head>
+<body class="text-white min-h-screen flex flex-col p-6 md:p-10 select-none overflow-x-hidden relative">
+
+    <!-- 禮花特效畫布 -->
+    <canvas id="confetti-canvas" class="fixed inset-0 pointer-events-none z-50"></canvas>
+
+    <!-- 頂部典禮標題列 -->
+    <header class="flex flex-wrap justify-between items-center gap-4 border-b border-white/10 pb-5 mb-8">
+        <div class="flex items-center gap-4">
+            <div class="w-14 h-14 rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-3xl shadow-lg shadow-amber-500/20">
+                🏆
+            </div>
+            <div>
+                <div class="flex items-center gap-2.5">
+                    <span class="px-2.5 py-0.5 text-xs font-extrabold tracking-widest uppercase rounded bg-amber-500/20 text-amber-300 border border-amber-400/30">
+                        LIVE LOTTERY BOARD
+                    </span>
+                    <span class="text-slate-400 text-sm hidden sm:inline">掃描摸彩券 QR Code 立即揭曉</span>
+                </div>
+                <h1 class="text-3xl md:text-4xl font-black tracking-wide gold-text mt-1">
+                    現場開獎即時實況
+                </h1>
+            </div>
+        </div>
+
+        <div class="flex items-center gap-4">
+            <div id="live-clock" class="font-mono-num text-xl md:text-2xl font-bold text-slate-300 bg-white/[0.04] px-4 py-2 rounded-xl border border-white/10">
+                00:00:00
+            </div>
+            <div class="flex items-center gap-2.5 bg-emerald-950/60 px-4 py-2 rounded-xl border border-emerald-500/30">
+                <span class="relative flex h-3 w-3">
+                    <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span class="relative inline-flex rounded-full h-3 w-3 bg-emerald-400"></span>
+                </span>
+                <span class="text-emerald-300 font-bold text-sm md:text-base tracking-wider">即時連線</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- 主舞台區：左側最新大獎聚光燈 + 右側即時中獎榜 -->
+    <main class="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch">
+        
+        <!-- 左側：最新開出大獎焦點（佔 5 欄） -->
+        <section class="lg:col-span-5 spotlight-card rounded-3xl border border-amber-400/35 p-8 md:p-10 flex flex-col items-center justify-between text-center relative overflow-hidden">
+            <div class="w-full flex items-center justify-center gap-2 text-amber-300/90 font-bold tracking-[0.2em] text-sm md:text-base uppercase">
+                <span class="h-px w-8 bg-amber-400/40"></span>
+                <span>最新中獎快報</span>
+                <span class="h-px w-8 bg-amber-400/40"></span>
+            </div>
+
+            <!-- 尚未有人中獎的待機畫面 -->
+            <div id="latest-empty" class="my-auto py-16 space-y-4">
+                <div class="text-6xl opacity-40 animate-pulse">✨</div>
+                <p class="text-slate-400 text-2xl font-bold tracking-wide">等待第一位幸運得主揭曉...</p>
+                <p class="text-slate-500 text-sm">請掃描手中摸彩券 QR Code 參與開獎</p>
+            </div>
+
+            <!-- 最新中獎特寫卡片 -->
+            <div id="latest-card" class="hidden my-auto w-full space-y-6 animate-reveal">
+                <div class="inline-flex items-center gap-2 px-7 py-2.5 rounded-2xl bg-gradient-to-r from-amber-500/20 via-amber-400/25 to-amber-500/20 border border-amber-400/60 shadow-lg shadow-amber-500/10">
+                    <span class="text-amber-200/80 text-lg font-bold">摸彩券號</span>
+                    <span class="font-mono-num text-3xl md:text-4xl font-extrabold text-amber-300 tracking-wider">#<span id="latest-id">0000</span></span>
+                </div>
+
+                <div class="py-2">
+                    <div class="text-7xl md:text-8xl drop-shadow-[0_10px_25px_rgba(245,158,11,0.35)]">🎉</div>
+                </div>
+
+                <div class="space-y-2">
+                    <div class="text-slate-400 text-sm font-bold tracking-widest">恭喜獲得</div>
+                    <h2 id="latest-prize" class="text-3xl md:text-5xl font-black text-white leading-tight break-words px-2"></h2>
+                </div>
+
+                <div class="pt-2">
+                    <div id="latest-status" class="inline-block px-5 py-2 rounded-full text-base md:text-lg font-bold"></div>
+                </div>
+            </div>
+
+            <div class="w-full pt-4 border-t border-white/5 text-slate-500 text-xs tracking-wider">
+                請中獎者攜帶實體摸彩券至服務台核銷領獎
+            </div>
+        </section>
+
+        <!-- 右側：即時中獎紀錄列表（佔 7 欄） -->
+        <section class="lg:col-span-7 bg-white/[0.03] backdrop-blur-xl rounded-3xl border border-white/10 p-6 md:p-8 flex flex-col">
+            <div class="flex flex-wrap justify-between items-center gap-3 mb-5">
+                <div class="flex items-center gap-3">
+                    <h3 class="text-2xl font-black text-white tracking-wide">最新中獎名單</h3>
+                    <span id="winner-count" class="px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-400/30 text-sm font-bold">
+                        已開出 0 筆
+                    </span>
+                </div>
+                <span class="text-slate-400 text-sm">即時顯示最近 30 筆紀錄</span>
+            </div>
+
+            <!-- 表格欄位標題 -->
+            <div class="grid grid-cols-12 px-4 py-2.5 text-xs font-bold text-slate-400 uppercase tracking-wider border-b border-white/10 mb-3">
+                <div class="col-span-3 sm:col-span-2">券號</div>
+                <div class="col-span-6 sm:col-span-6">中獎獎項</div>
+                <div class="col-span-3 sm:col-span-4 text-right">時間 / 狀態</div>
+            </div>
+            
+            <div id="winner-list" class="space-y-2.5 overflow-y-auto max-h-[62vh] pr-1 flex-1">
+                <!-- 列表動態產生 -->
+            </div>
+        </section>
+
+    </main>
+
+    <script>
+        // ================= 填入你的 Supabase 設定 =================
+        const SUPABASE_URL = 'https://lrfpuxozbnimfhmdqzcy.supabase.co';
+        const SUPABASE_ANON_KEY = 'sb_publishable_JOIxaaDduTrpiAT_av951A_z-honGcU';
+        // ==========================================================
+
+        const db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        let lastTopKey = '';
+
+        // 頂部即時數位時鐘
+        function updateClock() {
+            const now = new Date();
+            document.getElementById('live-clock').textContent = now.toLocaleTimeString('zh-TW', {
+                hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit'
+            });
+        }
+        setInterval(updateClock, 1000);
+        updateClock();
+
+        // 輕量級禮花噴發特效
+        const canvas = document.getElementById('confetti-canvas');
+        const ctx = canvas.getContext('2d');
+        let particles = [];
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        function fireConfetti() {
+            const colors = ['#FDE68A', '#F59E0B', '#38BDF8', '#34D399', '#F472B6', '#FFFFFF'];
+            for (let i = 0; i < 95; i++) {
+                particles.push({
+                    x: canvas.width * 0.28,
+                    y: canvas.height * 0.45,
+                    vx: (Math.random() - 0.5) * 18,
+                    vy: (Math.random() - 0.75) * 18,
+                    size: Math.random() * 8 + 4,
+                    color: colors[Math.floor(Math.random() * colors.length)],
+                    rotation: Math.random() * 360,
+                    vRot: (Math.random() - 0.5) * 12,
+                    alpha: 1
+                });
+            }
+        }
+
+        function animateConfetti() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            particles.forEach((p, idx) => {
+                p.x += p.vx;
+                p.y += p.vy;
+                p.vy += 0.42;
+                p.vx *= 0.98;
+                p.rotation += p.vRot;
+                p.alpha -= 0.011;
+
+                if (p.alpha <= 0) {
+                    particles.splice(idx, 1);
+                    return;
+                }
+                ctx.save();
+                ctx.globalAlpha = p.alpha;
+                ctx.translate(p.x, p.y);
+                ctx.rotate((p.rotation * Math.PI) / 180);
+                ctx.fillStyle = p.color;
+                ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 0.6);
+                ctx.restore();
+            });
+            requestAnimationFrame(animateConfetti);
+        }
+        animateConfetti();
+
+        // 同步 Supabase 最新開獎資料
+        async function fetchWinners() {
+            const { data, error } = await db.rpc('get_live_winners');
+            if (error || !data) return;
+
+            const listEl = document.getElementById('winner-list');
+            document.getElementById('winner-count').textContent = `已開出 ${data.length} 筆`;
+            
+            if (data.length === 0) {
+                document.getElementById('latest-empty').classList.remove('hidden');
+                document.getElementById('latest-card').classList.add('hidden');
+                listEl.innerHTML = '<div class="text-center text-slate-500 py-16 text-lg">尚無中獎紀錄，活動即將開始</div>';
+                return;
+            }
+
+            // 更新左側最新大獎特寫
+            const latest = data[0];
+            const currentKey = `${latest.ticket_id}-${latest.status}`;
+            
+            document.getElementById('latest-empty').classList.add('hidden');
+            const latestCard = document.getElementById('latest-card');
+            latestCard.classList.remove('hidden');
+
+            if (currentKey !== lastTopKey) {
+                lastTopKey = currentKey;
+                latestCard.classList.remove('animate-reveal');
+                void latestCard.offsetWidth;
+                latestCard.classList.add('animate-reveal');
+                fireConfetti();
+
+                document.getElementById('latest-id').textContent = latest.ticket_id;
+                document.getElementById('latest-prize').textContent = latest.prize;
+                
+                const statusBadge = document.getElementById('latest-status');
+                if (latest.status === 2) {
+                    statusBadge.textContent = '✅ 已完成領獎核銷';
+                    statusBadge.className = 'inline-block px-5 py-2 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 text-base md:text-lg font-bold';
+                } else {
+                    statusBadge.textContent = '🔔 剛抽出！請至兌獎處領獎';
+                    statusBadge.className = 'inline-block px-5 py-2 rounded-full bg-amber-500/25 text-amber-200 border border-amber-400/60 text-base md:text-lg font-bold shadow-lg shadow-amber-500/20';
+                }
+            }
+
+            // 更新右側名單
+            listEl.innerHTML = data.map((item, index) => {
+                const timeStr = item.event_time
+                    ? new Date(item.event_time).toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })
+                    : '';
+                const isFirst = index === 0;
+                const badge = item.status === 2 
+                    ? '<span class="px-3 py-1 rounded-lg text-xs md:text-sm font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">已核銷</span>'
+                    : '<span class="px-3 py-1 rounded-lg text-xs md:text-sm font-bold bg-amber-500/20 text-amber-300 border border-amber-400/40">待領獎</span>';
+
+                return `
+                    <div class="grid grid-cols-12 items-center px-4 py-3.5 rounded-2xl transition-all ${
+                        isFirst 
+                        ? 'bg-gradient-to-r from-amber-500/20 via-amber-500/10 to-transparent border border-amber-400/60 shadow-md' 
+                        : 'bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.06]'
+                    }">
+                        <div class="col-span-3 sm:col-span-2 font-mono-num text-lg md:text-xl font-extrabold ${isFirst ? 'text-amber-300' : 'text-amber-400/90'}">
+                            #${item.ticket_id}
+                        </div>
+                        <div class="col-span-6 sm:col-span-6 text-base md:text-lg font-bold text-white truncate pr-2">
+                            ${item.prize}
+                        </div>
+                        <div class="col-span-3 sm:col-span-4 flex items-center justify-end gap-3">
+                            <span class="font-mono-num text-slate-400 text-xs md:text-sm hidden sm:inline">${timeStr}</span>
+                            ${badge}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        fetchWinners();
+        setInterval(fetchWinners, 3000);
+    </script>
+</body>
+</html>
