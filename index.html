@@ -3,43 +3,125 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>活動摸彩開獎查詢</title>
+    <title>摸彩券開獎結果</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@700;800&family=Noto+Sans+TC:wght@400;700;900&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            background-color: #060913;
+            background-image: 
+                radial-gradient(circle at 50% 25%, rgba(245, 158, 11, 0.16) 0%, transparent 55%),
+                radial-gradient(circle at 50% 90%, rgba(56, 189, 248, 0.08) 0%, transparent 50%);
+        }
+        .font-mono-num {
+            font-family: 'JetBrains Mono', monospace;
+            font-variant-numeric: tabular-nums;
+        }
+        .gold-text {
+            background: linear-gradient(135deg, #FEF08A 0%, #F59E0B 50%, #D97706 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .vip-card {
+            background: linear-gradient(165deg, rgba(30, 41, 59, 0.85) 0%, rgba(15, 23, 42, 0.96) 100%);
+            box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.8), inset 0 1px 1px rgba(255, 255, 255, 0.12);
+        }
+        .win-glow {
+            box-shadow: 0 0 65px -15px rgba(245, 158, 11, 0.35), inset 0 1px 1px rgba(253, 230, 138, 0.25);
+        }
+        @keyframes cardReveal {
+            0% { transform: scale(0.9) translateY(16px); opacity: 0; }
+            100% { transform: scale(1) translateY(0); opacity: 1; }
+        }
+        .animate-reveal {
+            animation: cardReveal 0.55s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+    </style>
 </head>
-<body class="bg-slate-900 text-white min-h-screen flex items-center justify-center p-4">
+<body class="text-white min-h-[100dvh] flex flex-col items-center justify-center p-5 select-none relative overflow-hidden">
 
-    <div id="app" class="max-w-md w-full bg-slate-800 rounded-2xl shadow-2xl p-8 text-center border border-slate-700">
-        <div id="loading" class="py-12">
-            <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-amber-400 mx-auto mb-4"></div>
-            <p class="text-slate-300">正在驗證摸彩券序號...</p>
+    <!-- 禮花特效畫布 -->
+    <canvas id="confetti-canvas" class="fixed inset-0 pointer-events-none z-50"></canvas>
+
+    <!-- 頂部活動識別標籤 -->
+    <div class="mb-5 flex items-center gap-2 px-3.5 py-1 rounded-full bg-white/[0.04] border border-white/10 text-xs font-bold tracking-widest text-amber-300/80 uppercase">
+        <span>✨</span>
+        <span>Official Lottery Ticket</span>
+        <span>✨</span>
+    </div>
+
+    <!-- 主票券卡片 -->
+    <main id="main-card" class="w-full max-w-md vip-card border border-white/10 rounded-[2rem] p-8 text-center relative overflow-hidden">
+        
+        <!-- 載入中 -->
+        <div id="loading" class="py-16 space-y-4">
+            <div class="w-16 h-16 mx-auto rounded-2xl bg-amber-500/15 border border-amber-400/30 flex items-center justify-center text-3xl animate-pulse">
+                🎫
+            </div>
+            <p class="text-slate-300 font-bold tracking-wider">正在驗證摸彩券序號...</p>
         </div>
 
-        <div id="result" class="hidden space-y-6">
-            <div class="inline-block px-3 py-1 rounded-full bg-slate-700 text-xs text-slate-300 tracking-wider">
-                票券流水號 #<span id="ticket-id">0000</span>
+        <!-- 錯誤畫面 -->
+        <div id="error-box" class="hidden py-12 space-y-4 animate-reveal">
+            <div class="w-20 h-20 mx-auto rounded-full bg-rose-500/15 border border-rose-500/30 flex items-center justify-center text-4xl">
+                ❌
             </div>
-            <div id="status-icon" class="text-6xl">🎉</div>
-            <div>
-                <h1 id="result-title" class="text-2xl font-bold mb-2">恭喜中獎！</h1>
-                <p id="prize-name" class="text-3xl font-extrabold text-amber-400 break-words"></p>
+            <h1 id="error-msg" class="text-2xl font-black text-rose-400">無效的摸彩券</h1>
+            <p class="text-slate-400 text-sm leading-relaxed">請確認是否掃描正確的活動摸彩券 QR Code</p>
+        </div>
+
+        <!-- 未中獎畫面 -->
+        <div id="lose-box" class="hidden py-6 space-y-6 animate-reveal">
+            <div class="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-white/[0.05] border border-white/10 text-slate-300 font-mono-num font-bold text-sm">
+                <span class="text-slate-500">NO.</span>
+                <span class="ticket-no">0000</span>
             </div>
-            <div id="redeem-badge" class="hidden p-3 rounded-lg bg-red-900/50 border border-red-500 text-red-200 text-sm">
-                ⚠️ 此獎項已兌換完畢
-            </div>
-            <div id="staff-section" class="hidden pt-6 border-t border-slate-700 space-y-3">
-                <p class="text-xs text-slate-400">請向兌獎處出示此畫面，由工作人員輸入密碼核銷</p>
-                <div class="flex gap-2 justify-center">
-                    <input type="password" id="staff-pin" maxlength="6" placeholder="工作人員密碼" 
-                           class="w-36 px-3 py-2 rounded-lg bg-slate-900 border border-slate-600 text-center text-white focus:outline-none focus:border-amber-400">
-                    <button onclick="redeemPrize()" id="redeem-btn"
-                            class="px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold transition">
-                        確認核銷
-                    </button>
+
+            <div class="relative py-2">
+                <div class="w-28 h-28 mx-auto rounded-full bg-slate-800/80 border border-white/10 flex items-center justify-center text-6xl shadow-inner">
+                    🙏
                 </div>
             </div>
+
+            <div class="space-y-2">
+                <h1 class="text-3xl font-black text-slate-100 tracking-wide">銘謝惠顧</h1>
+                <p class="text-slate-400 text-base leading-relaxed">感謝您的熱情參與<br>祝您事事順心、好運連連！</p>
+            </div>
         </div>
-    </div>
+
+        <!-- 中獎畫面 -->
+        <div id="win-box" class="hidden py-4 space-y-6 animate-reveal">
+            <div class="inline-flex items-center gap-2 px-5 py-1.5 rounded-full bg-gradient-to-r from-amber-500/20 via-amber-400/25 to-amber-500/20 border border-amber-400/50 text-amber-200 font-mono-num font-extrabold text-base shadow-lg shadow-amber-500/10">
+                <span class="text-amber-400/80 text-xs">TICKET</span>
+                <span>#<span class="ticket-no">0000</span></span>
+            </div>
+
+            <div class="relative py-1">
+                <div class="w-28 h-28 mx-auto rounded-full bg-gradient-to-b from-amber-400/25 to-amber-600/10 border border-amber-400/40 flex items-center justify-center text-6xl shadow-[0_0_40px_rgba(245,158,11,0.3)]">
+                    🎉
+                </div>
+            </div>
+
+            <div class="space-y-2">
+                <p class="text-amber-300 font-extrabold tracking-[0.2em] text-xs uppercase">Congratulations • 恭喜幸運獲得</p>
+                <h1 id="prize-name" class="text-3xl sm:text-4xl font-black gold-text leading-tight break-words px-1 py-1"></h1>
+            </div>
+
+            <!-- 裝飾票券虛線分隔 -->
+            <div class="relative flex items-center py-1">
+                <div class="w-6 h-6 -ml-11 rounded-full bg-[#060913] border-r border-white/10"></div>
+                <div class="flex-1 border-t border-dashed border-white/15 mx-2"></div>
+                <div class="w-6 h-6 -mr-11 rounded-full bg-[#060913] border-l border-white/10"></div>
+            </div>
+
+            <div id="status-badge"></div>
+        </div>
+
+    </main>
 
     <script>
         // ================= 填入你的 Supabase 設定 =================
@@ -48,72 +130,116 @@
         // ==========================================================
 
         const db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-        const urlParams = new URLSearchParams(window.location.search);
-        const token = urlParams.get('code');
+
+        // 輕量級禮花特效
+        const canvas = document.getElementById('confetti-canvas');
+        const ctx = canvas.getContext('2d');
+        let particles = [];
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        function fireConfetti() {
+            const colors = ['#FEF08A', '#F59E0B', '#38BDF8', '#34D399', '#F472B6', '#FFFFFF'];
+            for (let i = 0; i < 85; i++) {
+                particles.push({
+                    x: canvas.width * 0.5,
+                    y: canvas.height * 0.38,
+                    vx: (Math.random() - 0.5) * 15,
+                    vy: (Math.random() - 0.75) * 16,
+                    size: Math.random() * 7 + 4,
+                    color: colors[Math.floor(Math.random() * colors.length)],
+                    rotation: Math.random() * 360,
+                    vRot: (Math.random() - 0.5) * 12,
+                    alpha: 1
+                });
+            }
+        }
+
+        function animateConfetti() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            particles.forEach((p, idx) => {
+                p.x += p.vx;
+                p.y += p.vy;
+                p.vy += 0.38;
+                p.vx *= 0.98;
+                p.rotation += p.vRot;
+                p.alpha -= 0.012;
+                if (p.alpha <= 0) {
+                    particles.splice(idx, 1);
+                    return;
+                }
+                ctx.save();
+                ctx.globalAlpha = p.alpha;
+                ctx.translate(p.x, p.y);
+                ctx.rotate((p.rotation * Math.PI) / 180);
+                ctx.fillStyle = p.color;
+                ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 0.6);
+                ctx.restore();
+            });
+            requestAnimationFrame(animateConfetti);
+        }
+        animateConfetti();
 
         async function init() {
+            const params = new URLSearchParams(window.location.search);
+            const token = params.get('code');
+
             if (!token) {
-                showError('無效的存取路徑，請掃描摸彩券上的 QR Code');
+                showError('缺少摸彩券序號');
                 return;
             }
+
             const { data, error } = await db.rpc('check_ticket', { p_token: token });
             document.getElementById('loading').classList.add('hidden');
-            document.getElementById('result').classList.remove('hidden');
 
             if (error || !data || !data.valid) {
-                showError(data?.message || '查詢失敗，請聯繫現場工作人員');
+                showError(data?.message || '查詢失敗，請重新掃描');
                 return;
             }
-            document.getElementById('ticket-id').textContent = data.id;
+
+            document.querySelectorAll('.ticket-no').forEach(el => el.textContent = data.id);
 
             if (!data.is_won) {
-                document.getElementById('status-icon').textContent = '🙏';
-                document.getElementById('result-title').textContent = '銘謝惠顧';
-                document.getElementById('prize-name').textContent = '感謝您的熱情參與！';
-                document.getElementById('prize-name').className = 'text-lg text-slate-400';
+                document.getElementById('lose-box').classList.remove('hidden');
                 return;
             }
+
+            // 中獎樣式強化與禮花
+            const card = document.getElementById('main-card');
+            card.classList.remove('border-white/10');
+            card.classList.add('border-amber-400/45', 'win-glow');
+            
+            document.getElementById('win-box').classList.remove('hidden');
             document.getElementById('prize-name').textContent = data.prize;
+            fireConfetti();
+
+            const badge = document.getElementById('status-badge');
             if (data.status === 2) {
-                markAsRedeemed(data.redeemed_at);
+                badge.innerHTML = `
+                    <div class="inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-emerald-500/15 border border-emerald-400/40 text-emerald-300 font-bold text-sm sm:text-base">
+                        <span>✅</span>
+                        <span>此獎項已完成領獎</span>
+                    </div>`;
             } else {
-                document.getElementById('staff-section').classList.remove('hidden');
+                badge.innerHTML = `
+                    <div class="inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-amber-500/20 border border-amber-400/50 text-amber-200 font-bold text-sm sm:text-base shadow-lg shadow-amber-500/10">
+                        <span>🎁</span>
+                        <span>請持實體摸彩券至兌獎處領獎</span>
+                    </div>`;
             }
-        }
-
-        async function redeemPrize() {
-            const pin = document.getElementById('staff-pin').value;
-            if (!pin) return alert('請輸入工作人員核銷密碼');
-            const btn = document.getElementById('redeem-btn');
-            btn.disabled = true;
-            btn.textContent = '處理中...';
-            const { data, error } = await db.rpc('redeem_ticket', { p_token: token, p_pin: pin });
-            btn.disabled = false;
-            btn.textContent = '確認核銷';
-            if (error || !data.success) {
-                alert(data?.message || '核銷發生錯誤');
-                return;
-            }
-            alert('核銷成功！請發放獎品。');
-            markAsRedeemed(new Date().toISOString());
-        }
-
-        function markAsRedeemed(timeStr) {
-            document.getElementById('staff-section').classList.add('hidden');
-            const badge = document.getElementById('redeem-badge');
-            badge.classList.remove('hidden');
-            const localTime = new Date(timeStr).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
-            badge.textContent = `⚠️ 此獎項已於 ${localTime} 兌換完畢`;
         }
 
         function showError(msg) {
             document.getElementById('loading').classList.add('hidden');
-            document.getElementById('result').classList.remove('hidden');
-            document.getElementById('status-icon').textContent = '❌';
-            document.getElementById('result-title').textContent = '查詢異常';
-            document.getElementById('prize-name').textContent = msg;
-            document.getElementById('prize-name').className = 'text-base text-red-400';
+            document.getElementById('error-box').classList.remove('hidden');
+            document.getElementById('error-msg').textContent = msg;
         }
+
         init();
     </script>
 </body>
